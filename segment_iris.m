@@ -2,12 +2,90 @@
 function X = segment_iris(eye_file)
   eye_image = im2single(imread(eye_file));
 
+  %imshow(plot_line(eye_image, [-20,20], [202,20]));
+  find_eyelid_boundaries(eye_image, [156, 118, 60], [154, 114, 110]);
+  return;
+
+
   inner_circle = find_inner_circle(eye_image);
   segmented_image = plot_circle(eye_image, inner_circle); % debug
 
-  circle = find_outer_circle(eye_image, inner_circle);
-  segmented_image = plot_circle(segmented_image, circle); % debug
+  outer_circle = find_outer_circle(eye_image, inner_circle);
+  segmented_image = plot_circle(segmented_image, outer_circle); % debug
   imshow(segmented_image); % debug
+  
+  %find_eyelid_boundaries(eye_image, inner_circle, outer_circle);
+end
+
+function boundaries = find_eyelid_boundaries(eye_image, inner_circle,
+                                             outer_circle)
+  angle = 1.26;
+  k = 0;
+  dir = [sin(angle), cos(angle)];
+  norm = [dir(2), dir(1)];
+  orig = inner_circle(1:2);
+  orig = orig + k*norm;
+  % yield 1 or two lines
+  int = line_circle_intersect([dir; orig], outer_circle)
+  if ( size(int,2) == 2 )
+    imshow(plot_line(eye_image, int(1,:), int(2,:)));
+  end
+end
+
+% line - [dirx, diry; origx, origy]
+% circle - [x, y, r]
+function points = line_circle_intersect(line, circle)
+  k = line(1,2) / line(1,1)
+  q = line(2,2)
+  x0 = circle(1)
+  y0 = circle(2)
+  r = circle(3)
+
+  a = 1+k^2;
+  b = 2*x0 + 2*k*q - 2*k*y0;
+  c = -r^2 + q^2 - 2*q*y0 + y0^2 + x0^2;
+  D = b^2 - 4*a*c
+  if ( D < 0 )
+    points = [];
+    return;
+  end
+  if ( D == 0 )
+    x = -b/(2*a);
+    y = k*x+q;
+    points = [x, y];
+    return;
+  end
+
+  x1 = ( -b + sqrt(D) ) / (2*a);
+  x2 = ( -b - sqrt(D) ) / (2*a);
+  y1 = k*x1+q;
+  y2 = k*x2+q;
+  points = [x1, y1; x2, y2];
+end
+
+function new_image = plot_line(image, from, to)
+  accuracy = 50;
+  new_image = image;
+  if ( to(1) < from(1) )
+    tmp = to;
+    to = from;
+    from = tmp;
+  end
+  dist = sqrt(abs((from-to)(1))^2 + abs((from-to)(2))^2);
+  if ( dist == 0 )
+    return;
+  end
+  step_size = dist / accuracy;
+  step = (to-from) / dist;
+  step = ceil(step * step_size);
+  i=from;
+  while i <= to
+    if ( i(1) > 0 && i(1) <= size(image,2) &&
+         i(2) > 0 && i(2) <= size(image,1) )
+      new_image(i(2),i(1)) = 0;
+    end
+    i = i + step;
+  end
 end
 
 % Finds the best candidate for an inner circle.
