@@ -26,25 +26,26 @@ function boundaries = find_eyelid_boundaries(eye_image, inner_circle,
   orig = inner_circle(1:2);
   orig = orig + k*norm;
   % yield 1 or two lines
+
   int = line_circle_intersect([dir; orig], outer_circle)
   if ( size(int,2) == 2 )
-    imshow(plot_line(eye_image, int(1,:), int(2,:)));
+    % TODO
   end
 end
 
 % line - [dirx, diry; origx, origy]
 % circle - [x, y, r]
 function points = line_circle_intersect(line, circle)
-  k = line(1,2) / line(1,1)
-  q = line(2,2)
-  x0 = circle(1)
-  y0 = circle(2)
-  r = circle(3)
+  k = line(1,2) / line(1,1);
+  q = line(2,2) - k*line(2,1);
+  x0 = circle(1);
+  y0 = circle(2);
+  r = circle(3);
 
   a = 1+k^2;
-  b = 2*x0 + 2*k*q - 2*k*y0;
+  b = -2*x0 + 2*k*q - 2*k*y0;
   c = -r^2 + q^2 - 2*q*y0 + y0^2 + x0^2;
-  D = b^2 - 4*a*c
+  D = b^2 - 4*a*c;
   if ( D < 0 )
     points = [];
     return;
@@ -60,31 +61,46 @@ function points = line_circle_intersect(line, circle)
   x2 = ( -b - sqrt(D) ) / (2*a);
   y1 = k*x1+q;
   y2 = k*x2+q;
-  points = [x1, y1; x2, y2];
+  points = round([x1, y1; x2, y2]);
 end
 
 function new_image = plot_line(image, from, to)
   accuracy = 50;
   new_image = image;
-  if ( to(1) < from(1) )
-    tmp = to;
-    to = from;
-    from = tmp;
-  end
-  dist = sqrt(abs((from-to)(1))^2 + abs((from-to)(2))^2);
+  dist = sqrt((from-to)(1)^2 + (from-to)(2)^2);
   if ( dist == 0 )
     return;
   end
+
   step_size = dist / accuracy;
   step = (to-from) / dist;
-  step = ceil(step * step_size);
-  i=from;
-  while i <= to
-    if ( i(1) > 0 && i(1) <= size(image,2) &&
-         i(2) > 0 && i(2) <= size(image,1) )
-      new_image(i(2),i(1)) = 0;
+
+  if from(1) == to(1) % vertical line
+    x = from(1);
+    y = min(from(2), to(2));
+    for i=1:accuracy+1
+      if ( x > 0 && x <= size(image,2) &&
+           y > 0 && y <= size(image,1) )
+        new_image(round(y), x) = 0;
+      end
+      y = y + step_size;
     end
-    i = i + step;
+    return;
+  end
+
+  k = step(2) / step(1);
+  q = from(2) - k*from(1);
+  x_step = sqrt( step_size^2 - step(2)^2 )
+
+  x=min(from(1), to(1));
+  % TODO: make accurate - currently it is possible to go over the 'to' point
+  for i=1:accuracy+1
+    y = k*x+q;
+    if ( x > 0 && x <= size(image,2) &&
+         y > 0 && y <= size(image,1) )
+      new_image(round(y),round(x)) = 0;
+    end
+    x = x + x_step;
   end
 end
 
