@@ -2,42 +2,127 @@
 function X = segment_iris(eye_file)
   eye_image = im2single(imread(eye_file));
 
-  %imshow(plot_line(eye_image, [-20,20], [202,20]));
-  find_eyelid_boundaries(eye_image, [156, 118, 60], [154, 114, 110]);
-  return;
-
-
   inner_circle = find_inner_circle(eye_image);
-  segmented_image = plot_circle(eye_image, inner_circle); % debug
+  segmented_image = plot_circle(eye_image, inner_circle);
 
   outer_circle = find_outer_circle(eye_image, inner_circle);
-  segmented_image = plot_circle(segmented_image, outer_circle); % debug
-  imshow(segmented_image); % debug
+  segmented_image = plot_circle(segmented_image, outer_circle);
   
-  %find_eyelid_boundaries(eye_image, inner_circle, outer_circle);
+  boundaries = find_eyelid_boundaries(eye_image, inner_circle, outer_circle);
+  for i=1:size(boundaries)
+    segmented_image = plot_line(segmented_image, boundaries(i,:));
+  end
+
+  imshow(segmented_image); % debug
 end
 
+% boundaries -  matrix whose rows describe eyelid boundary lines
 function boundaries = find_eyelid_boundaries(eye_image, inner_circle,
                                              outer_circle)
-  angle = 1.26;
-  k = 0;
-  dir = [sin(angle), cos(angle)];
-  norm = [dir(2), dir(1)];
-  orig = inner_circle(1:2);
-  orig = orig + k*norm;
-  % yield 1 or two lines
+  angle_accuracy = 20;
+  line_step = 10;
+  boundaries = [];
+  angle = 0;
+  prev = -1;
+  best_diff = -1;
+  best_line = prev_line = [-1, -1; -1, -1]; % points from, to
+  while angle < pi
+    k = 0;
+    while 1
+      dir = [cos(angle), sin(angle)];
+      norm = [dir(2), -dir(1)];
+      orig = inner_circle(1:2);
+      orig = orig + k*norm;
+      line = [dir, orig];
 
-  int = line_circle_intersect([dir; orig], outer_circle)
-  if ( size(int,2) == 2 )
-    % TODO
+      int1 = line_circle_intersect(line, outer_circle);
+
+      if ( size(int1,1) != 2 )
+        break;
+      end
+
+      int2 = line_circle_intersect(line, inner_circle);
+
+      if ( size(int2,1) != 2 )
+        cur = line_average(eye_image, int1);
+      else
+        % determine between which points to calc a line
+        dist1 = sqrt( sum((int1(1,:)-int2(1,:)).^2) );
+        dist2 = sqrt( sum((int1(1,:)-int2(2,:)).^2) );
+        if ( dist1 > dist2 )
+          int2 = [ int2(2,:); int2(1,:) ];
+        end
+        cur = line_average(eye_image, [int1(2,:), int2(2,:)]);
+        cur = cur / 2; % avg
+      end
+
+      if ( prev != -1 )
+        diff = abs(prev-cur);
+        if ( diff > best_diff )
+          best_diff = diff;
+          best_line = prev_line;
+          % debug: uncomment to see candidate best lines
+          %boundaries = [boundaries; best_line(1,:), best_line(2,:)];
+        end
+        prev_line = int1;
+      end
+      prev = cur;
+      k = k + line_step;
+    end
+    angle = angle + pi/angle_accuracy;
+    prev = -1;
   end
+
+  boundaries = [boundaries; best_line(1,:), best_line(2,:)];
 end
 
-% line - [dirx, diry; origx, origy]
+% line - [fromx, fromy, tox, toy]
+function average = line_average(image, line)
+  points = sample_line(image, line);
+  summ = 0;
+  n = size(points,1);
+
+  % calc mean
+  values = [];
+  for p=1:n
+    values = [values; image(points(p,2), points(p,1))];
+  end
+
+  values = sort(values);
+  average = values(floor(size(values,1)/2)+1);
+  return;
+
+  % alternative: calc average
+  for p=1:n
+    summ = summ + image(points(p,2), points(p,1));
+  end
+  average = summ/n;
+end
+
+% line - [dirx, diry, origx, origy]
 % circle - [x, y, r]
 function points = line_circle_intersect(line, circle)
-  k = line(1,2) / line(1,1);
-  q = line(2,2) - k*line(2,1);
+  points = [];
+  x0 = circle(1);
+  y0 = circle(2);
+  r = circle(3);
+  if ( line(1) == 0 ) % vertical line
+    x = line(3);
+    y_pow2 = r*r-(x-x0)^2;
+    if ( y_pow2 == 0 )
+      y = round(sqrt(y_pow2))+y0;
+      points = [x, y];
+    elseif ( y_pow2 > 0 )
+      tmp = round(sqrt(y_pow2));
+      y1 = tmp+y0;
+      y2 = -tmp+y0;
+      points = [x, y1; x, y2];
+    end
+    return;
+  end
+
+  k = line(2) / line(1);
+  q = line(4) - k*line(3);
   x0 = circle(1);
   y0 = circle(2);
   r = circle(3);
@@ -46,61 +131,71 @@ function points = line_circle_intersect(line, circle)
   b = -2*x0 + 2*k*q - 2*k*y0;
   c = -r^2 + q^2 - 2*q*y0 + y0^2 + x0^2;
   D = b^2 - 4*a*c;
-  if ( D < 0 )
-    points = [];
-    return;
-  end
   if ( D == 0 )
     x = -b/(2*a);
     y = k*x+q;
     points = [x, y];
-    return;
+  elseif ( D > 0 )
+    x1 = ( -b + sqrt(D) ) / (2*a);
+    x2 = ( -b - sqrt(D) ) / (2*a);
+    y1 = k*x1+q;
+    y2 = k*x2+q;
+    points = round([x1, y1; x2, y2]);
   end
-
-  x1 = ( -b + sqrt(D) ) / (2*a);
-  x2 = ( -b - sqrt(D) ) / (2*a);
-  y1 = k*x1+q;
-  y2 = k*x2+q;
-  points = round([x1, y1; x2, y2]);
 end
 
-function new_image = plot_line(image, from, to)
-  accuracy = 50;
+% line - [fromx, fromy, tox, toy]
+function new_image = plot_line(image, line)
   new_image = image;
+  points = sample_line(image, line);
+  for p=1:size(points,1)
+    new_image(points(p,2), points(p,1)) = 0;
+  end
+end
+
+% line - [fromx, fromy, tox, toy]
+function points = sample_line(image, line)
+  accuracy = 50;
+  points = [];
+  from = line(1:2);
+  to = line(3:4);
   dist = sqrt((from-to)(1)^2 + (from-to)(2)^2);
   if ( dist == 0 )
     return;
   end
 
   step_size = dist / accuracy;
-  step = (to-from) / dist;
+  step = (to-from) / accuracy;
 
   if from(1) == to(1) % vertical line
     x = from(1);
     y = min(from(2), to(2));
     for i=1:accuracy+1
+      tmp = y;
+      y = round(y);
       if ( x > 0 && x <= size(image,2) &&
            y > 0 && y <= size(image,1) )
-        new_image(round(y), x) = 0;
+        points = [points; x, y];
       end
-      y = y + step_size;
+      y = tmp + step_size;
     end
     return;
   end
 
   k = step(2) / step(1);
   q = from(2) - k*from(1);
-  x_step = sqrt( step_size^2 - step(2)^2 )
+  x_step = sqrt( step_size^2 - step(2)^2 );
 
   x=min(from(1), to(1));
-  % TODO: make accurate - currently it is possible to go over the 'to' point
   for i=1:accuracy+1
-    y = k*x+q;
+    y = round(k*x+q);
+    tmp = x;
+    x = round(x);
     if ( x > 0 && x <= size(image,2) &&
          y > 0 && y <= size(image,1) )
-      new_image(round(y),round(x)) = 0;
+      points = [points; x, y];
     end
-    x = x + x_step;
+    x = tmp + x_step;
   end
 end
 
