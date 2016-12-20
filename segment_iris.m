@@ -9,8 +9,8 @@ function X = segment_iris(eye_file)
   segmented_image = plot_circle(segmented_image, outer_circle);
   
   boundaries = find_eyelid_boundaries(eye_image, inner_circle, outer_circle);
-  for i=1:size(boundaries)
-    segmented_image = plot_line(segmented_image, boundaries(i,:));
+  for i=1:size(boundaries) % change this to i=1:1 to plot only best candidate
+    segmented_image = plot_spline(segmented_image, boundaries(i,:));
   end
 
   imshow(segmented_image); % debug
@@ -24,56 +24,120 @@ function boundaries = find_eyelid_boundaries(eye_image, inner_circle,
   boundaries = [];
   angle = 0;
   prev = -1;
-  best_diff = -1;
-  best_line = prev_line = [-1, -1; -1, -1]; % points from, to
+  prev_spline = [-1,-1,-1,-1,-1,-1]; % points p1, p2, mid_pt
+  best_splines = [];
+  cap = 30;
   while angle < pi
-    k = 0;
-    while 1
-      dir = [cos(angle), sin(angle)];
-      norm = [dir(2), -dir(1)];
-      orig = inner_circle(1:2);
-      orig = orig + k*norm;
-      line = [dir, orig];
+    dir = [cos(angle), sin(angle)];
+    norm = [dir(2), -dir(1)];
+    orig = inner_circle(1:2);
+    line = [dir, orig];
 
-      int1 = line_circle_intersect(line, outer_circle);
+    base_mid_pt = orig+5*norm;
+    while point_circle_relation(base_mid_pt, outer_circle) < 0
+      k = 0;
+      while 1
+        line(1,3:4) = orig + k*norm;
+        mid_pt = base_mid_pt + k*norm;
 
-      if ( size(int1,1) != 2 )
-        break;
-      end
-
-      int2 = line_circle_intersect(line, inner_circle);
-
-      if ( size(int2,1) != 2 )
-        cur = line_average(eye_image, int1);
-      else
-        % determine between which points to calc a line
-        dist1 = sqrt( sum((int1(1,:)-int2(1,:)).^2) );
-        dist2 = sqrt( sum((int1(1,:)-int2(2,:)).^2) );
-        if ( dist1 > dist2 )
-          int2 = [ int2(2,:); int2(1,:) ];
+        if point_circle_relation(mid_pt, outer_circle) >= 0
+          break;
         end
-        cur = line_average(eye_image, [int1(2,:), int2(2,:)]);
-        cur = cur / 2; % avg
-      end
 
-      if ( prev != -1 )
-        diff = abs(prev-cur);
-        if ( diff > best_diff )
-          best_diff = diff;
-          best_line = prev_line;
-          % debug: uncomment to see candidate best lines
-          %boundaries = [boundaries; best_line(1,:), best_line(2,:)];
+        int = line_circle_intersect(line, outer_circle);
+        spline = [int(1,:), int(2,:), mid_pt];
+        cur = spline_average(eye_image, spline, inner_circle);
+
+        if ( prev != -1 )
+          diff = abs(prev-cur);
+
+          % check if it belongs to top solutions
+          back = size(best_splines,1);
+          if back == 0
+            best_splines = [diff, prev_spline];
+          elseif back < cap
+            best_splines(back+1,:) = [diff, prev_spline];
+          elseif diff > best_splines(back, 1)
+            best_splines(back,:) = [diff, prev_spline];
+            best_splines = sortrows(best_splines, [-1]);
+          end
+
+          prev_spline = [int(1,:), int(2,:), mid_pt];
         end
-        prev_line = int1;
+        prev = cur;
+        k = k + line_step;
       end
-      prev = cur;
-      k = k + line_step;
+      base_mid_pt = base_mid_pt + 4*norm;
+      prev = -1;
     end
     angle = angle + pi/angle_accuracy;
-    prev = -1;
   end
+  boundaries = best_splines(:,2:7);
+end
 
-  boundaries = [boundaries; best_line(1,:), best_line(2,:)];
+% point - [x, y]
+% circle - [x0, y0, r]
+% relation:  positive if point outside of circle
+%            zero if point on of circle
+%            negative if point inside of circle
+function relation = point_circle_relation(point, circle)
+  x = point(1);
+  y = point(2);
+  x0 = circle(1);
+  y0 = circle(2);
+  r = circle(3);
+  relation = (x-x0)^2 + (y-y0)^2 - r^2;
+end
+
+% spline - [p1, p2, mid_pt]
+function points = sample_spline(image, spline_)
+  points = [];
+  samples = 15;
+
+  p1 = spline_(1:2);
+  p2 = spline_(3:4);
+  mid_pt = spline_(5:6);
+
+  dist = sqrt(sum((p2-p1).^2));
+  dir = (p2-p1)/dist;
+  norm = [dir(2), -dir(1)];
+  line_mid_pt = p1+dir*dist/2;
+  mid_pt_dist = sqrt(sum((mid_pt-line_mid_pt).^2));
+
+  x = [0, dist, dist/2];
+  y = [0, 0, mid_pt_dist];
+  xx = 0:dist/samples:dist;
+  yy = spline(x, y, xx);
+  for i=1:size(xx,2)
+    p = round(p1+xx(i)*dir+yy(i)*norm);
+    if (p(1) > 0 && p(1) <= size(image, 2)
+       && p(2) > 0 && p(2) <= size(image, 1))
+      points = [points; p];
+    end
+  end
+end
+
+function new_image = plot_spline(image, spline)
+  new_image = image;
+  points = sample_spline(image, spline);
+  for i=1:size(points)-1
+    from = points(i,:);
+    to = points(i+1,:);
+    new_image = plot_line(new_image, [from, to]);
+  end
+end
+
+function average = spline_average(image, spline, circle_to_avoid)
+  points = sample_spline(image, spline);
+  summ = n = 0;
+  for i=1:size(points)
+    p = points(i,:);
+    if point_circle_relation(p, circle_to_avoid) > 0
+      summ += image(p(2), p(1));
+      n += 1;
+    end
+  end
+  average = summ/n;
 end
 
 % line - [fromx, fromy, tox, toy]
@@ -82,7 +146,7 @@ function average = line_average(image, line)
   summ = 0;
   n = size(points,1);
 
-  % calc mean
+  % calc median
   values = [];
   for p=1:n
     values = [values; image(points(p,2), points(p,1))];
@@ -99,14 +163,14 @@ function average = line_average(image, line)
   average = summ/n;
 end
 
-% line - [dirx, diry, origx, origy]
+% line - [dirx, diry, origx, origy] where dir has unit length
 % circle - [x, y, r]
 function points = line_circle_intersect(line, circle)
   points = [];
   x0 = circle(1);
   y0 = circle(2);
   r = circle(3);
-  if ( line(1) == 0 ) % vertical line
+  if ( line(2) == 1 ) % vertical line
     x = line(3);
     y_pow2 = r*r-(x-x0)^2;
     if ( y_pow2 == 0 )
