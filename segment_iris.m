@@ -1,5 +1,6 @@
 % TODO
 function X = segment_iris(eye_file)
+  
   eye_image = im2single(imread(eye_file));
 
   inner_circle = find_inner_circle(eye_image);
@@ -8,8 +9,8 @@ function X = segment_iris(eye_file)
   outer_circle = find_outer_circle(eye_image, inner_circle);
   segmented_image = plot_circle(segmented_image, outer_circle);
   
-  boundaries = find_eyelid_boundaries(eye_image, inner_circle, outer_circle);
-  for i=1:size(boundaries) % change this to i=1:1 to plot only best candidate
+  boundaries = find_eyelid_boundaries(eye_image, inner_circle, outer_circle)
+  for i=1:size(boundaries)
     segmented_image = plot_spline(segmented_image, boundaries(i,:));
   end
 
@@ -26,14 +27,14 @@ function boundaries = find_eyelid_boundaries(eye_image, inner_circle,
   prev = -1;
   prev_spline = [-1,-1,-1,-1,-1,-1]; % points p1, p2, mid_pt
   best_splines = [];
-  cap = 30;
+  cap = 60;
   while angle < pi
     dir = [cos(angle), sin(angle)];
     norm = [dir(2), -dir(1)];
     orig = inner_circle(1:2);
     line = [dir, orig];
 
-    base_mid_pt = orig+5*norm;
+    base_mid_pt = orig+4*norm;
     while point_circle_relation(base_mid_pt, outer_circle) < 0
       k = 0;
       while 1
@@ -72,7 +73,49 @@ function boundaries = find_eyelid_boundaries(eye_image, inner_circle,
     end
     angle = angle + pi/angle_accuracy;
   end
-  boundaries = best_splines(:,2:7);
+  n_splines = size(best_splines,1);
+  boundaries = first_spline = best_splines(1,2:7);
+  second_spline_candidates = best_splines(2:n_splines, 2:7);
+  [splines,idx] = remove_intersecting_splines(first_spline,
+                                        second_spline_candidates);
+  if best_splines(idx(1),1) > 0.1
+    boundaries = [boundaries; splines(1,:)];
+  end
+end
+
+function [splines,idx] = remove_intersecting_splines(pivot_spline, splines_)
+  splines = [];
+  idx = [];
+  p1 = pivot_spline(1:2);
+  p2 = pivot_spline(3:4);
+  mid_pt = pivot_spline(5:6);
+  for i=1:size(splines_)
+    spline = splines_(i,:);
+    for j=0:2
+      p = spline(j*2+1:j*2+2);
+      from = p1-mid_pt;
+      to = p2-mid_pt;
+      x = p-mid_pt;
+      if (cross2d(from,x)*cross2d(from,to) <= 0
+         || cross2d(to,x)*cross2d(to,from) <= 0 )
+        break;
+      end
+      if j == 2
+        dist = min([norm(p1-spline(1:2)),
+                    norm(p2-spline(3:4)),
+                    norm(p2-spline(1:2)),
+                    norm(p1-spline(3:4))]);
+        if dist > 40
+          splines = [splines; splines_(i,:)];
+          idx = [idx; i];
+        end
+      end
+    end
+  end
+end
+
+function z = cross2d(vec1, vec2)
+  z = cross([vec1,0], [vec2,0])(3);
 end
 
 % point - [x, y]
@@ -100,9 +143,9 @@ function points = sample_spline(image, spline_)
 
   dist = sqrt(sum((p2-p1).^2));
   dir = (p2-p1)/dist;
-  norm = [dir(2), -dir(1)];
   line_mid_pt = p1+dir*dist/2;
   mid_pt_dist = sqrt(sum((mid_pt-line_mid_pt).^2));
+  norm = (mid_pt-line_mid_pt)/mid_pt_dist;
 
   x = [0, dist, dist/2];
   y = [0, 0, mid_pt_dist];
