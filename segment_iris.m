@@ -1,13 +1,309 @@
 % TODO
 function X = segment_iris(eye_file)
+  
   eye_image = im2single(imread(eye_file));
 
   inner_circle = find_inner_circle(eye_image);
-  segmented_image = plot_circle(eye_image, inner_circle); % debug
+  segmented_image = plot_circle(eye_image, inner_circle);
 
-  circle = find_outer_circle(eye_image, inner_circle);
-  segmented_image = plot_circle(segmented_image, circle); % debug
+  outer_circle = find_outer_circle(eye_image, inner_circle);
+  segmented_image = plot_circle(segmented_image, outer_circle);
+  
+  boundaries = find_eyelid_boundaries(eye_image, inner_circle, outer_circle)
+  for i=1:size(boundaries)
+    segmented_image = plot_spline(segmented_image, boundaries(i,:));
+  end
+
   imshow(segmented_image); % debug
+end
+
+% boundaries -  matrix whose rows describe eyelid boundary lines
+function boundaries = find_eyelid_boundaries(eye_image, inner_circle,
+                                             outer_circle)
+  angle_accuracy = 20;
+  line_step = 10;
+  boundaries = [];
+  angle = 0;
+  prev = -1;
+  prev_spline = [-1,-1,-1,-1,-1,-1]; % points p1, p2, mid_pt
+  best_splines = [];
+  cap = 60;
+  while angle < pi
+    dir = [cos(angle), sin(angle)];
+    norm = [dir(2), -dir(1)];
+    orig = inner_circle(1:2);
+    line = [dir, orig];
+
+    base_mid_pt = orig+4*norm;
+    while point_circle_relation(base_mid_pt, outer_circle) < 0
+      k = 0;
+      while 1
+        line(1,3:4) = orig + k*norm;
+        mid_pt = base_mid_pt + k*norm;
+
+        if point_circle_relation(mid_pt, outer_circle) >= 0
+          break;
+        end
+
+        int = line_circle_intersect(line, outer_circle);
+        spline = [int(1,:), int(2,:), mid_pt];
+        cur = spline_average(eye_image, spline, inner_circle);
+
+        if ( prev != -1 )
+          diff = abs(prev-cur);
+
+          % check if it belongs to top solutions
+          back = size(best_splines,1);
+          if back == 0
+            best_splines = [diff, prev_spline];
+          elseif back < cap
+            best_splines(back+1,:) = [diff, prev_spline];
+          elseif diff > best_splines(back, 1)
+            best_splines(back,:) = [diff, prev_spline];
+            best_splines = sortrows(best_splines, [-1]);
+          end
+
+          prev_spline = [int(1,:), int(2,:), mid_pt];
+        end
+        prev = cur;
+        k = k + line_step;
+      end
+      base_mid_pt = base_mid_pt + 4*norm;
+      prev = -1;
+    end
+    angle = angle + pi/angle_accuracy;
+  end
+  n_splines = size(best_splines,1);
+  boundaries = first_spline = best_splines(1,2:7);
+  second_spline_candidates = best_splines(2:n_splines, 2:7);
+  [splines,idx] = remove_intersecting_splines(first_spline,
+                                        second_spline_candidates);
+  if best_splines(idx(1),1) > 0.1
+    boundaries = [boundaries; splines(1,:)];
+  end
+end
+
+function [splines,idx] = remove_intersecting_splines(pivot_spline, splines_)
+  splines = [];
+  idx = [];
+  p1 = pivot_spline(1:2);
+  p2 = pivot_spline(3:4);
+  mid_pt = pivot_spline(5:6);
+  for i=1:size(splines_)
+    spline = splines_(i,:);
+    for j=0:2
+      p = spline(j*2+1:j*2+2);
+      from = p1-mid_pt;
+      to = p2-mid_pt;
+      x = p-mid_pt;
+      if (cross2d(from,x)*cross2d(from,to) <= 0
+         || cross2d(to,x)*cross2d(to,from) <= 0 )
+        break;
+      end
+      if j == 2
+        dist = min([norm(p1-spline(1:2)),
+                    norm(p2-spline(3:4)),
+                    norm(p2-spline(1:2)),
+                    norm(p1-spline(3:4))]);
+        if dist > 40
+          splines = [splines; splines_(i,:)];
+          idx = [idx; i];
+        end
+      end
+    end
+  end
+end
+
+function z = cross2d(vec1, vec2)
+  z = cross([vec1,0], [vec2,0])(3);
+end
+
+% point - [x, y]
+% circle - [x0, y0, r]
+% relation:  positive if point outside of circle
+%            zero if point on of circle
+%            negative if point inside of circle
+function relation = point_circle_relation(point, circle)
+  x = point(1);
+  y = point(2);
+  x0 = circle(1);
+  y0 = circle(2);
+  r = circle(3);
+  relation = (x-x0)^2 + (y-y0)^2 - r^2;
+end
+
+% spline - [p1, p2, mid_pt]
+function points = sample_spline(image, spline_)
+  points = [];
+  samples = 15;
+
+  p1 = spline_(1:2);
+  p2 = spline_(3:4);
+  mid_pt = spline_(5:6);
+
+  dist = sqrt(sum((p2-p1).^2));
+  dir = (p2-p1)/dist;
+  line_mid_pt = p1+dir*dist/2;
+  mid_pt_dist = sqrt(sum((mid_pt-line_mid_pt).^2));
+  norm = (mid_pt-line_mid_pt)/mid_pt_dist;
+
+  x = [0, dist, dist/2];
+  y = [0, 0, mid_pt_dist];
+  xx = 0:dist/samples:dist;
+  yy = spline(x, y, xx);
+  for i=1:size(xx,2)
+    p = round(p1+xx(i)*dir+yy(i)*norm);
+    if (p(1) > 0 && p(1) <= size(image, 2)
+       && p(2) > 0 && p(2) <= size(image, 1))
+      points = [points; p];
+    end
+  end
+end
+
+function new_image = plot_spline(image, spline)
+  new_image = image;
+  points = sample_spline(image, spline);
+  for i=1:size(points)-1
+    from = points(i,:);
+    to = points(i+1,:);
+    new_image = plot_line(new_image, [from, to]);
+  end
+end
+
+function average = spline_average(image, spline, circle_to_avoid)
+  points = sample_spline(image, spline);
+  summ = n = 0;
+  for i=1:size(points)
+    p = points(i,:);
+    if point_circle_relation(p, circle_to_avoid) > 0
+      summ += image(p(2), p(1));
+      n += 1;
+    end
+  end
+  average = summ/n;
+end
+
+% line - [fromx, fromy, tox, toy]
+function average = line_average(image, line)
+  points = sample_line(image, line);
+  summ = 0;
+  n = size(points,1);
+
+  % calc median
+  values = [];
+  for p=1:n
+    values = [values; image(points(p,2), points(p,1))];
+  end
+
+  values = sort(values);
+  average = values(floor(size(values,1)/2)+1);
+  return;
+
+  % alternative: calc average
+  for p=1:n
+    summ = summ + image(points(p,2), points(p,1));
+  end
+  average = summ/n;
+end
+
+% line - [dirx, diry, origx, origy] where dir has unit length
+% circle - [x, y, r]
+function points = line_circle_intersect(line, circle)
+  points = [];
+  x0 = circle(1);
+  y0 = circle(2);
+  r = circle(3);
+  if ( line(2) == 1 ) % vertical line
+    x = line(3);
+    y_pow2 = r*r-(x-x0)^2;
+    if ( y_pow2 == 0 )
+      y = round(sqrt(y_pow2))+y0;
+      points = [x, y];
+    elseif ( y_pow2 > 0 )
+      tmp = round(sqrt(y_pow2));
+      y1 = tmp+y0;
+      y2 = -tmp+y0;
+      points = [x, y1; x, y2];
+    end
+    return;
+  end
+
+  k = line(2) / line(1);
+  q = line(4) - k*line(3);
+  x0 = circle(1);
+  y0 = circle(2);
+  r = circle(3);
+
+  a = 1+k^2;
+  b = -2*x0 + 2*k*q - 2*k*y0;
+  c = -r^2 + q^2 - 2*q*y0 + y0^2 + x0^2;
+  D = b^2 - 4*a*c;
+  if ( D == 0 )
+    x = -b/(2*a);
+    y = k*x+q;
+    points = [x, y];
+  elseif ( D > 0 )
+    x1 = ( -b + sqrt(D) ) / (2*a);
+    x2 = ( -b - sqrt(D) ) / (2*a);
+    y1 = k*x1+q;
+    y2 = k*x2+q;
+    points = round([x1, y1; x2, y2]);
+  end
+end
+
+% line - [fromx, fromy, tox, toy]
+function new_image = plot_line(image, line)
+  new_image = image;
+  points = sample_line(image, line);
+  for p=1:size(points,1)
+    new_image(points(p,2), points(p,1)) = 0;
+  end
+end
+
+% line - [fromx, fromy, tox, toy]
+function points = sample_line(image, line)
+  accuracy = 50;
+  points = [];
+  from = line(1:2);
+  to = line(3:4);
+  dist = sqrt((from-to)(1)^2 + (from-to)(2)^2);
+  if ( dist == 0 )
+    return;
+  end
+
+  step_size = dist / accuracy;
+  step = (to-from) / accuracy;
+
+  if from(1) == to(1) % vertical line
+    x = from(1);
+    y = min(from(2), to(2));
+    for i=1:accuracy+1
+      tmp = y;
+      y = round(y);
+      if ( x > 0 && x <= size(image,2) &&
+           y > 0 && y <= size(image,1) )
+        points = [points; x, y];
+      end
+      y = tmp + step_size;
+    end
+    return;
+  end
+
+  k = step(2) / step(1);
+  q = from(2) - k*from(1);
+  x_step = sqrt( step_size^2 - step(2)^2 );
+
+  x=min(from(1), to(1));
+  for i=1:accuracy+1
+    y = round(k*x+q);
+    tmp = x;
+    x = round(x);
+    if ( x > 0 && x <= size(image,2) &&
+         y > 0 && y <= size(image,1) )
+      points = [points; x, y];
+    end
+    x = tmp + x_step;
+  end
 end
 
 % Finds the best candidate for an inner circle.
