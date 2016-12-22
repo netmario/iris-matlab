@@ -1,4 +1,5 @@
 pkg load image;
 eye_file = 'eye.jpg';
-
-segment_iris(eye_file);
+eye_image = im2single(imread(eye_file));
+[circles, eyelids] = segment(eye_image)
+rect = project(eye_image, circles);

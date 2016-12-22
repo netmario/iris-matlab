@@ -1,20 +1,26 @@
-% TODO
-function X = segment_iris(eye_file)
-  
-  eye_image = im2single(imread(eye_file));
+% circle - [x0, y0, r]
+% spline - [p1, p2, mid_pt]
 
+% circles - two circle rows describing iris
+%         - first row: inner circle
+%         - second row: outer circle
+% eyelids - one or two spline rows describing eyelid
+function [circles, eyelids] = segment(eye_image)
   inner_circle = find_inner_circle(eye_image);
-  segmented_image = plot_circle(eye_image, inner_circle);
-
   outer_circle = find_outer_circle(eye_image, inner_circle);
-  segmented_image = plot_circle(segmented_image, outer_circle);
-  
-  boundaries = find_eyelid_boundaries(eye_image, inner_circle, outer_circle)
-  for i=1:size(boundaries)
-    segmented_image = plot_spline(segmented_image, boundaries(i,:));
-  end
+  eyelids = find_eyelid_boundaries(eye_image, inner_circle, outer_circle);
+  circles = [inner_circle; outer_circle];
 
-  imshow(segmented_image); % debug
+  % debug
+  image = eye_image;
+  for i=1:size(circles,1)
+    image = plot_circle(image, circles(i,:));
+  end
+  for i=1:size(eyelids)
+    image = plot_spline(image, eyelids(i,:));
+  end
+  figure(1);
+  imshow(image);
 end
 
 % boundaries -  matrix whose rows describe eyelid boundary lines
@@ -204,51 +210,6 @@ function average = line_average(image, line)
     summ = summ + image(points(p,2), points(p,1));
   end
   average = summ/n;
-end
-
-% line - [dirx, diry, origx, origy] where dir has unit length
-% circle - [x, y, r]
-function points = line_circle_intersect(line, circle)
-  points = [];
-  x0 = circle(1);
-  y0 = circle(2);
-  r = circle(3);
-  if ( line(2) == 1 ) % vertical line
-    x = line(3);
-    y_pow2 = r*r-(x-x0)^2;
-    if ( y_pow2 == 0 )
-      y = round(sqrt(y_pow2))+y0;
-      points = [x, y];
-    elseif ( y_pow2 > 0 )
-      tmp = round(sqrt(y_pow2));
-      y1 = tmp+y0;
-      y2 = -tmp+y0;
-      points = [x, y1; x, y2];
-    end
-    return;
-  end
-
-  k = line(2) / line(1);
-  q = line(4) - k*line(3);
-  x0 = circle(1);
-  y0 = circle(2);
-  r = circle(3);
-
-  a = 1+k^2;
-  b = -2*x0 + 2*k*q - 2*k*y0;
-  c = -r^2 + q^2 - 2*q*y0 + y0^2 + x0^2;
-  D = b^2 - 4*a*c;
-  if ( D == 0 )
-    x = -b/(2*a);
-    y = k*x+q;
-    points = [x, y];
-  elseif ( D > 0 )
-    x1 = ( -b + sqrt(D) ) / (2*a);
-    x2 = ( -b - sqrt(D) ) / (2*a);
-    y1 = k*x1+q;
-    y2 = k*x2+q;
-    points = round([x1, y1; x2, y2]);
-  end
 end
 
 % line - [fromx, fromy, tox, toy]
