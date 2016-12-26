@@ -209,7 +209,7 @@ function average = line_average(image, line)
   for p=1:n
     summ = summ + image(points(p,2), points(p,1));
   end
-  average = summ/n;
+  average = double(summ)/n;
 end
 
 % line - [fromx, fromy, tox, toy]
