@@ -12,15 +12,14 @@ function [circles, eyelids] = segment(eye_image)
   circles = [inner_circle; outer_circle];
 
   % debug
-  image = eye_image;
   for i=1:size(circles,1)
-    image = plot_circle(image, circles(i,:));
+    eye_image = plot_circle(eye_image, circles(i,:));
   end
   for i=1:size(eyelids)
-    image = plot_spline(image, eyelids(i,:));
+    eye_image = plot_spline(eye_image, eyelids(i,:));
   end
-  figure(1);
-  imshow(image);
+  figure;
+  imshow(eye_image);
 end
 
 % boundaries -  matrix whose rows describe eyelid boundary lines
@@ -138,45 +137,6 @@ function relation = point_circle_relation(point, circle)
   relation = (x-x0)^2 + (y-y0)^2 - r^2;
 end
 
-% spline - [p1, p2, mid_pt]
-function points = sample_spline(image, spline_)
-  points = [];
-  samples = 15;
-
-  p1 = spline_(1:2);
-  p2 = spline_(3:4);
-  mid_pt = spline_(5:6);
-
-  dist = norm(p2-p1);
-  dir = (p2-p1)/dist;
-  line_mid_pt = p1+dir*dist/2;
-  mid_pt_dist = norm(mid_pt-line_mid_pt);
-  norm = (mid_pt-line_mid_pt)/mid_pt_dist;
-
-  x = [0, dist, dist/2];
-  y = [0, 0, mid_pt_dist];
-  xx = 0:dist/samples:dist;
-  yy = spline(x, y, xx);
-  for i=1:size(xx,2)
-    p = round(p1+xx(i)*dir+yy(i)*norm);
-    if (p(1) > 0 && p(1) <= size(image, 2)
-       && p(2) > 0 && p(2) <= size(image, 1))
-      points = [points; p];
-    end
-  end
-  points = [p1; points; p2];
-end
-
-function new_image = plot_spline(image, spline)
-  new_image = image;
-  points = sample_spline(image, spline);
-  for i=1:size(points)-1
-    from = points(i,:);
-    to = points(i+1,:);
-    new_image = plot_line(new_image, [from, to]);
-  end
-end
-
 function average = spline_average(image, spline, circle_to_avoid)
   points = sample_spline(image, spline);
   summ = n = 0;
@@ -211,61 +171,6 @@ function average = line_average(image, line)
     summ = summ + image(points(p,2), points(p,1));
   end
   average = double(summ)/n;
-end
-
-% line - [fromx, fromy, tox, toy]
-function new_image = plot_line(image, line)
-  new_image = image;
-  points = sample_line(image, line);
-  for p=1:size(points,1)
-    new_image(points(p,2), points(p,1)) = 0;
-  end
-end
-
-% line - [fromx, fromy, tox, toy]
-function points = sample_line(image, line)
-  accuracy = 50;
-  points = [];
-  from = line(1:2);
-  to = line(3:4);
-  dist = sqrt((from-to)(1)^2 + (from-to)(2)^2);
-  if ( dist == 0 )
-    return;
-  end
-
-  step_size = dist / accuracy;
-  step = (to-from) / accuracy;
-
-  if from(1) == to(1) % vertical line
-    x = from(1);
-    y = min(from(2), to(2));
-    for i=1:accuracy+1
-      tmp = y;
-      y = round(y);
-      if ( x > 0 && x <= size(image,2) &&
-           y > 0 && y <= size(image,1) )
-        points = [points; x, y];
-      end
-      y = tmp + step_size;
-    end
-    return;
-  end
-
-  k = step(2) / step(1);
-  q = from(2) - k*from(1);
-  x_step = sqrt( step_size^2 - step(2)^2 );
-
-  x=min(from(1), to(1));
-  for i=1:accuracy+1
-    y = round(k*x+q);
-    tmp = x;
-    x = round(x);
-    if ( x > 0 && x <= size(image,2) &&
-         y > 0 && y <= size(image,1) )
-      points = [points; x, y];
-    end
-    x = tmp + x_step;
-  end
 end
 
 % Finds the best candidate for an inner circle.
@@ -412,33 +317,3 @@ function intersect = circle_intersect(circle1, circle2)
   intersect = (r1-r2)^2 <= centers_distance && centers_distance <= (r1+r2)^2;
 end
 
-% image - grayscale 2D matrix image to plot into
-% circle - description of the circle [x, y, r]
-% image_result - image with the circle plotted
-function image = plot_circle(image, circle)
-  accuracy = 2; % 1 - high but slow, 10 - low but fast
-
-  x0 = circle(1);
-  y0 = circle(2);
-  r = circle(3);
-  x = -r;
-  while x<=r
-    if ( x+x0 <= 0 || x+x0 > size(image,2) )
-      continue;
-    end
-    tmp = round(sqrt(r*r-x^2));
-    y1 = tmp+y0;
-    y2 = -tmp+y0;
-
-    if ( y1 > 0 && y1 <= size(image,1) )
-      image(y1, x+x0) = 0;
-    end
-
-    if ( y2 > 0 && y2 <= size(image,1) )
-      image(y2, x+x0) = 0;
-    end
-
-    x = x + accuracy;
-  end
-  image_result = image;
-end

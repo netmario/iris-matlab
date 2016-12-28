@@ -31,8 +31,8 @@ function rect = project(eye_image, circles)
     end
   end
   % debug
-  figure(2);
+  figure;
   imshow(image);
-  figure(3);
+  figure;
   imshow(rect);
 end
