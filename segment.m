@@ -147,10 +147,10 @@ function points = sample_spline(image, spline_)
   p2 = spline_(3:4);
   mid_pt = spline_(5:6);
 
-  dist = sqrt(sum((p2-p1).^2));
+  dist = norm(p2-p1);
   dir = (p2-p1)/dist;
   line_mid_pt = p1+dir*dist/2;
-  mid_pt_dist = sqrt(sum((mid_pt-line_mid_pt).^2));
+  mid_pt_dist = norm(mid_pt-line_mid_pt);
   norm = (mid_pt-line_mid_pt)/mid_pt_dist;
 
   x = [0, dist, dist/2];
@@ -164,6 +164,7 @@ function points = sample_spline(image, spline_)
       points = [points; p];
     end
   end
+  points = [p1; points; p2];
 end
 
 function new_image = plot_spline(image, spline)
