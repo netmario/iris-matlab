@@ -1,6 +1,6 @@
 % circles - [inner_circle; outer_circle]
 % rect - radius_samples x angle_samples matrix
-function rect = project(eye_image, circles)
+function [image, rect] = project(eye_image, circles)
   image = eye_image; % debug
   radius_samples = 10;
   angle_samples = 80;
@@ -30,9 +30,4 @@ function rect = project(eye_image, circles)
       end
     end
   end
-  % debug
-  figure;
-  imshow(image);
-  figure;
-  imshow(rect);
 end

@@ -32,6 +32,5 @@ function mask_image = mask(eye_image, circles, eyelids)
   for i=1:size(eyelids)
     image = plot_spline(image, eyelids(i,:));
   end
-  figure;
-  imshow(mask_image);
+  save_image(mask_image, 'mask');
 end
