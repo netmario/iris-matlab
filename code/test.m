@@ -1,5 +1,5 @@
 function test()
-%  generate();
+  generate();
   same_person();
   different_person();
   evaluate();
