@@ -6,6 +6,7 @@
 %         - second row: outer circle
 % eyelids - one or two spline rows describing eyelid
 function [circles, eyelids] = segment(eye_image)
+  global CUR_DIR;
   inner_circle = find_inner_circle(eye_image);
   outer_circle = find_outer_circle(eye_image, inner_circle);
   eyelids = find_eyelid_boundaries(eye_image, inner_circle, outer_circle);
@@ -18,8 +19,7 @@ function [circles, eyelids] = segment(eye_image)
   for i=1:size(eyelids)
     eye_image = plot_spline(eye_image, eyelids(i,:));
   end
-  figure;
-  imshow(eye_image);
+  save_image(eye_image, 'segmented');
 end
 
 % boundaries -  matrix whose rows describe eyelid boundary lines
@@ -216,7 +216,7 @@ function circle = find_circle_in_area(eye_image, area, radius, circle_to_avoid)
   center_accuracy = 2;
 
   % difficulty (number of circle centers considered)
-  disp(['difficulty: ', num2str( area(1,2) * area(2,2) )]); % debug
+  %disp(['difficulty: ', num2str( area(1,2) * area(2,2) )]); % debug
 
   best_diff = 0;
   best_circle = [42, 42, 42];

@@ -9,8 +9,5 @@ function iris_code = feature_extraction(image)
     end
   end
   iris_code = phase_quantization(features);
-  % debug
-  figure;
-  imshow(iris_code);
 end
 
